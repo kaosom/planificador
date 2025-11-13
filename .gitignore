@@ -1,0 +1,33 @@
+# Archivos compilados
+build/
+*.class
+*.jar
+
+# Archivos de IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+
+# NetBeans
+nbproject/private/
+nbproject/build/
+dist/
+nbbuild/
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+
+# Archivos de salida generados
+resultados_cliente_*.txt
+
+# Logs
+*.log
+
+# Archivos temporales
+*.tmp
+*.bak
+*~
