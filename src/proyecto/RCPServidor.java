@@ -14,6 +14,7 @@ public class RCPServidor {
             System.out.println("+=========================================+");
             
             planificador = new ProcesosImpl();
+            ProcesosImpl.setInstanciaCompartida(planificador);
             
             server = new WebServer(8080);
             XmlRpcServer xmlRpcServer = server.getXmlRpcServer();

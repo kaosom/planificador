@@ -62,17 +62,83 @@ public class ProcesosImpl {
         }
     }
     
+    private static ProcesosImpl instanciaCompartida;
+    
     public ProcesosImpl() {
-        tablaProcesos = new HashMap<>();
-        colaEspera = new LinkedList<>();
-        colaRechazo = new ArrayList<>();
-        procesosCompletados = new ArrayList<>();
-        ultimaActividadCliente = new HashMap<>();
-        procesoEnEjecucion = null;
-        tiempoActual = 0;
+        if (instanciaCompartida != null) {
+            this.tablaProcesos = instanciaCompartida.tablaProcesos;
+            this.colaEspera = instanciaCompartida.colaEspera;
+            this.colaRechazo = instanciaCompartida.colaRechazo;
+            this.procesosCompletados = instanciaCompartida.procesosCompletados;
+            this.ultimaActividadCliente = instanciaCompartida.ultimaActividadCliente;
+            this.procesoEnEjecucion = instanciaCompartida.procesoEnEjecucion;
+            this.tiempoActual = instanciaCompartida.tiempoActual;
+        } else {
+            tablaProcesos = new HashMap<>();
+            colaEspera = new LinkedList<>();
+            colaRechazo = new ArrayList<>();
+            procesosCompletados = new ArrayList<>();
+            ultimaActividadCliente = new HashMap<>();
+            procesoEnEjecucion = null;
+            tiempoActual = 0;
+        }
+    }
+    
+    public static void setInstanciaCompartida(ProcesosImpl instancia) {
+        instanciaCompartida = instancia;
+    }
+    
+    public static ProcesosImpl getInstanciaCompartida() {
+        return instanciaCompartida;
+    }
+    
+    public synchronized int getTiempoActual() {
+        return tiempoActual;
+    }
+    
+    public static class ProcesoInfo {
+        public String nombre;
+        public String clienteId;
+        public int tiempoCreacion;
+        public int tiempoEjecucion;
+        public EstadoProceso estado;
+        public int tiempoAsignacion;
+        public int tiempoFinalizacion;
+        
+        public ProcesoInfo(String nombre, String clienteId, int tiempoCreacion, int tiempoEjecucion,
+                          EstadoProceso estado, int tiempoAsignacion, int tiempoFinalizacion) {
+            this.nombre = nombre;
+            this.clienteId = clienteId;
+            this.tiempoCreacion = tiempoCreacion;
+            this.tiempoEjecucion = tiempoEjecucion;
+            this.estado = estado;
+            this.tiempoAsignacion = tiempoAsignacion;
+            this.tiempoFinalizacion = tiempoFinalizacion;
+        }
+    }
+    
+    public synchronized Map<String, ProcesoInfo> obtenerProcesosParaGUI() {
+        Map<String, ProcesoInfo> procesos = new HashMap<>();
+        for (Map.Entry<String, Proceso> entry : tablaProcesos.entrySet()) {
+            Proceso proceso = entry.getValue();
+            if (proceso.estado != EstadoProceso.ELIMINADO) {
+                procesos.put(entry.getKey(), new ProcesoInfo(
+                    proceso.nombre,
+                    proceso.clienteId,
+                    proceso.tiempoCreacion,
+                    proceso.tiempoEjecucion,
+                    proceso.estado,
+                    proceso.tiempoAsignacion,
+                    proceso.tiempoFinalizacion
+                ));
+            }
+        }
+        return procesos;
     }
     
     public synchronized String solicitarProceso(String clienteId, String nombre, int tiempoCreacion, int tiempoEjecucion) {
+        validarConsistencia();
+        
         actualizarActividadCliente(clienteId, tiempoCreacion);
         verificarClientesInactivos(tiempoCreacion);
         
@@ -115,7 +181,7 @@ public class ProcesosImpl {
         }
     }
     
-    public synchronized void reportarCompletado(String clienteId, String nombre, int tiempoFinalizacion) {
+    public synchronized String reportarCompletado(String clienteId, String nombre, int tiempoFinalizacion) {
         String claveProceso = clienteId + "_" + nombre;
         Proceso proceso = tablaProcesos.get(claveProceso);
         
@@ -123,22 +189,56 @@ public class ProcesosImpl {
             proceso.estado = EstadoProceso.FINALIZADO;
             proceso.tiempoFinalizacion = tiempoFinalizacion;
             procesosCompletados.add(new ProcesoCompletado(proceso));
+            
+            colaEspera.remove(proceso);
+            colaRechazo.remove(proceso);
             procesoEnEjecucion = null;
             
             procesarSiguienteProceso();
+            return "Proceso " + nombre + " completado exitosamente";
         }
+        return "Error: Proceso " + nombre + " no encontrado o no esta en ejecucion";
     }
     
     private synchronized void procesarSiguienteProceso() {
+        limpiarColaEspera();
+        
         if (!colaEspera.isEmpty()) {
             Proceso siguiente = colaEspera.poll();
-            siguiente.estado = EstadoProceso.EJECUCION;
-            siguiente.tiempoAsignacion = tiempoActual;
-            procesoEnEjecucion = siguiente;
-            tiempoActual += siguiente.tiempoEjecucion;
+            if (siguiente.estado != EstadoProceso.ELIMINADO) {
+                siguiente.estado = EstadoProceso.EJECUCION;
+                siguiente.tiempoAsignacion = tiempoActual;
+                procesoEnEjecucion = siguiente;
+                tiempoActual += siguiente.tiempoEjecucion;
+            }
         }
         
         procesarReintentos();
+    }
+    
+    private synchronized void limpiarColaEspera() {
+        colaEspera.removeIf(p -> p.estado == EstadoProceso.ELIMINADO || 
+                                  p.estado == EstadoProceso.FINALIZADO ||
+                                  p.estado == EstadoProceso.EJECUCION ||
+                                  p == procesoEnEjecucion);
+    }
+    
+    private synchronized void validarConsistencia() {
+        if (procesoEnEjecucion != null) {
+            colaEspera.remove(procesoEnEjecucion);
+            colaRechazo.remove(procesoEnEjecucion);
+        }
+        
+        limpiarColaEspera();
+        
+        for (Proceso proceso : tablaProcesos.values()) {
+            if (proceso.estado == EstadoProceso.ELIMINADO) {
+                colaEspera.remove(proceso);
+                if (proceso == procesoEnEjecucion) {
+                    procesoEnEjecucion = null;
+                }
+            }
+        }
     }
     
     private synchronized void procesarReintentos() {
@@ -197,24 +297,26 @@ public class ProcesosImpl {
         
         List<String> procesosAEliminar = new ArrayList<>();
         for (Map.Entry<String, Proceso> entry : tablaProcesos.entrySet()) {
-            if (entry.getValue().clienteId.equals(clienteId)) {
-                procesosAEliminar.add(entry.getKey());
+            Proceso proceso = entry.getValue();
+            if (proceso.clienteId.equals(clienteId)) {
+                if (proceso.estado != EstadoProceso.EJECUCION && 
+                    proceso.estado != EstadoProceso.FINALIZADO &&
+                    proceso != procesoEnEjecucion &&
+                    !colaEspera.contains(proceso)) {
+                    procesosAEliminar.add(entry.getKey());
+                }
             }
         }
         
         for (String clave : procesosAEliminar) {
             Proceso proceso = tablaProcesos.get(clave);
             proceso.estado = EstadoProceso.ELIMINADO;
-            colaEspera.remove(proceso);
             colaRechazo.remove(proceso);
-            if (proceso == procesoEnEjecucion) {
-                procesoEnEjecucion = null;
-                procesarSiguienteProceso();
-            }
         }
     }
     
     public synchronized String obtenerSiguienteProceso() {
+        validarConsistencia();
         procesarReintentos();
         
         if (procesoEnEjecucion != null) {
@@ -224,15 +326,10 @@ public class ProcesosImpl {
                    ", asignado en T=" + procesoEnEjecucion.tiempoAsignacion + ")";
         } else if (!colaEspera.isEmpty()) {
             Proceso siguiente = colaEspera.peek();
-            siguiente.estado = EstadoProceso.EJECUCION;
-            siguiente.tiempoAsignacion = tiempoActual;
-            procesoEnEjecucion = siguiente;
-            colaEspera.poll();
-            tiempoActual += siguiente.tiempoEjecucion;
-            return "Proceso asignado: " + siguiente.nombre + 
+            return "Siguiente proceso en cola: " + siguiente.nombre + 
                    " (C=" + siguiente.tiempoCreacion + 
                    ", t=" + siguiente.tiempoEjecucion + 
-                   ", asignado en T=" + siguiente.tiempoAsignacion + ")";
+                   ", estado=" + siguiente.estado + ")";
         } else {
             return "No hay procesos en la cola de espera";
         }
@@ -288,8 +385,14 @@ public class ProcesosImpl {
         
         int posicion = 1;
         for (Proceso proceso : colaEspera) {
+            if (proceso.estado == EstadoProceso.ELIMINADO || 
+                proceso.estado == EstadoProceso.EJECUCION ||
+                proceso.estado == EstadoProceso.FINALIZADO ||
+                proceso == procesoEnEjecucion) {
+                continue;
+            }
+            
             String estado = proceso.estado == EstadoProceso.PREPARADO ? "En espera        " : 
-                           proceso.estado == EstadoProceso.EJECUCION ? "Ejecutando       " : 
                            proceso.estado.toString();
             infoCola.add(String.format("| %-2d |    %-4s |   %-6s |  %-3d  |  %-3d  | %-18s |", 
                 posicion, proceso.nombre, proceso.clienteId, proceso.tiempoCreacion, 
@@ -297,7 +400,7 @@ public class ProcesosImpl {
             posicion++;
         }
         
-        if (colaEspera.isEmpty()) {
+        if (posicion == 1) {
             infoCola.add("|                      COLA VACIA                           |");
         }
         

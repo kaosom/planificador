@@ -44,9 +44,13 @@ public class RPCCliente {
     
     public void reportarCompletado(String nombreProceso, int tiempoFinalizacion) {
         Object[] params = {clienteId, nombreProceso, tiempoFinalizacion};
-        ejecutarMetodo("reportarCompletado", params);
+        String resultado = (String) ejecutarMetodo("reportarCompletado", params);
         System.out.println("\n+--------------------------------------+");
-        System.out.println("| Proceso " + nombreProceso + " completado en T=" + tiempoFinalizacion);
+        if (resultado != null) {
+            System.out.println("| " + resultado);
+        } else {
+            System.out.println("| Proceso " + nombreProceso + " completado en T=" + tiempoFinalizacion);
+        }
         System.out.println("+--------------------------------------+");
     }
     
@@ -60,9 +64,35 @@ public class RPCCliente {
     }
     
     @SuppressWarnings("unchecked")
+    private List<String> convertirALista(Object resultado) {
+        List<String> lista = new ArrayList<>();
+        if (resultado != null) {
+            if (resultado instanceof Object[]) {
+                Object[] array = (Object[]) resultado;
+                for (Object item : array) {
+                    if (item != null) {
+                        lista.add(item.toString());
+                    }
+                }
+            } else if (resultado instanceof List) {
+                try {
+                    lista = (List<String>) resultado;
+                } catch (ClassCastException e) {
+                    List<?> listaGenerica = (List<?>) resultado;
+                    for (Object item : listaGenerica) {
+                        if (item != null) {
+                            lista.add(item.toString());
+                        }
+                    }
+                }
+            }
+        }
+        return lista;
+    }
+    
     public void mostrarTablaGantt() {
-        List<String> tabla = (List<String>) ejecutarMetodo("obtenerTablaGantt", new Object[0]);
-        if (tabla != null) {
+        List<String> tabla = convertirALista(ejecutarMetodo("obtenerTablaGantt", new Object[0]));
+        if (tabla != null && !tabla.isEmpty()) {
             System.out.println();
             for (String linea : tabla) {
                 System.out.println(linea);
@@ -89,10 +119,9 @@ public class RPCCliente {
         }
     }
     
-    @SuppressWarnings("unchecked")
     public void mostrarColaEspera() {
-        List<String> cola = (List<String>) ejecutarMetodo("obtenerColaEspera", new Object[0]);
-        if (cola != null) {
+        List<String> cola = convertirALista(ejecutarMetodo("obtenerColaEspera", new Object[0]));
+        if (cola != null && !cola.isEmpty()) {
             System.out.println();
             for (String linea : cola) {
                 System.out.println(linea);
@@ -101,10 +130,9 @@ public class RPCCliente {
         }
     }
     
-    @SuppressWarnings("unchecked")
     public void mostrarColaRechazo() {
-        List<String> cola = (List<String>) ejecutarMetodo("obtenerColaRechazo", new Object[0]);
-        if (cola != null) {
+        List<String> cola = convertirALista(ejecutarMetodo("obtenerColaRechazo", new Object[0]));
+        if (cola != null && !cola.isEmpty()) {
             System.out.println();
             for (String linea : cola) {
                 System.out.println(linea);
@@ -113,10 +141,9 @@ public class RPCCliente {
         }
     }
     
-    @SuppressWarnings("unchecked")
     public void mostrarTablaProcesos() {
-        List<String> tabla = (List<String>) ejecutarMetodo("obtenerTablaProcesos", new Object[0]);
-        if (tabla != null) {
+        List<String> tabla = convertirALista(ejecutarMetodo("obtenerTablaProcesos", new Object[0]));
+        if (tabla != null && !tabla.isEmpty()) {
             System.out.println();
             for (String linea : tabla) {
                 System.out.println(linea);
@@ -125,10 +152,9 @@ public class RPCCliente {
         }
     }
     
-    @SuppressWarnings("unchecked")
     public void mostrarTablaTiempoEspera() {
-        List<String> tabla = (List<String>) ejecutarMetodo("obtenerTablaTiempoEspera", new Object[0]);
-        if (tabla != null) {
+        List<String> tabla = convertirALista(ejecutarMetodo("obtenerTablaTiempoEspera", new Object[0]));
+        if (tabla != null && !tabla.isEmpty()) {
             System.out.println();
             for (String linea : tabla) {
                 System.out.println(linea);
@@ -137,10 +163,9 @@ public class RPCCliente {
         }
     }
     
-    @SuppressWarnings("unchecked")
     public void mostrarTablaTiempoFinalizacion() {
-        List<String> tabla = (List<String>) ejecutarMetodo("obtenerTablaTiempoFinalizacion", new Object[0]);
-        if (tabla != null) {
+        List<String> tabla = convertirALista(ejecutarMetodo("obtenerTablaTiempoFinalizacion", new Object[0]));
+        if (tabla != null && !tabla.isEmpty()) {
             System.out.println();
             for (String linea : tabla) {
                 System.out.println(linea);
@@ -149,10 +174,9 @@ public class RPCCliente {
         }
     }
     
-    @SuppressWarnings("unchecked")
     public void mostrarTablaPenalizacion() {
-        List<String> tabla = (List<String>) ejecutarMetodo("obtenerTablaPenalizacion", new Object[0]);
-        if (tabla != null) {
+        List<String> tabla = convertirALista(ejecutarMetodo("obtenerTablaPenalizacion", new Object[0]));
+        if (tabla != null && !tabla.isEmpty()) {
             System.out.println();
             for (String linea : tabla) {
                 System.out.println(linea);
@@ -161,10 +185,9 @@ public class RPCCliente {
         }
     }
     
-    @SuppressWarnings("unchecked")
     public void mostrarTablaResumen() {
-        List<String> tabla = (List<String>) ejecutarMetodo("obtenerTablaResumen", new Object[0]);
-        if (tabla != null) {
+        List<String> tabla = convertirALista(ejecutarMetodo("obtenerTablaResumen", new Object[0]));
+        if (tabla != null && !tabla.isEmpty()) {
             System.out.println();
             for (String linea : tabla) {
                 System.out.println(linea);
