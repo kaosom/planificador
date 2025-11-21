@@ -31,3 +31,12 @@ resultados_cliente_*.txt
 *.tmp
 *.bak
 *~
+
+# Archivos de compilación adicionales
+*.o
+*.so
+*.dylib
+
+# Archivos de configuración local (si los hay)
+*.local
+*.env
