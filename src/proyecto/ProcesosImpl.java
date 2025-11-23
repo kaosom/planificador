@@ -96,6 +96,62 @@ public class ProcesosImpl {
         return tiempoActual;
     }
     
+    public synchronized void avanzarSimulacion(int tiempoSimulacion) {
+        validarYCorregirEstados();
+        
+        if (procesoEnEjecucion != null && procesoEnEjecucion.tiempoAsignacion != -1) {
+            int tiempoFinEsperado = procesoEnEjecucion.tiempoAsignacion + procesoEnEjecucion.tiempoEjecucion;
+            
+            if (tiempoSimulacion >= tiempoFinEsperado && procesoEnEjecucion.estado == EstadoProceso.EJECUCION) {
+                procesoEnEjecucion.estado = EstadoProceso.FINALIZADO;
+                procesoEnEjecucion.tiempoFinalizacion = tiempoFinEsperado;
+                procesosCompletados.add(new ProcesoCompletado(procesoEnEjecucion));
+                
+                colaEspera.remove(procesoEnEjecucion);
+                colaRechazo.remove(procesoEnEjecucion);
+                procesoEnEjecucion = null;
+                
+                procesarSiguienteProceso();
+            }
+        }
+        
+        if (procesoEnEjecucion == null && !colaEspera.isEmpty()) {
+            procesarSiguienteProceso();
+        }
+    }
+    
+    private synchronized void validarYCorregirEstados() {
+        for (Proceso proceso : tablaProcesos.values()) {
+            if (proceso.estado == EstadoProceso.ELIMINADO) continue;
+            
+            if (proceso == procesoEnEjecucion) {
+                if (proceso.estado != EstadoProceso.EJECUCION && proceso.tiempoAsignacion != -1) {
+                    proceso.estado = EstadoProceso.EJECUCION;
+                }
+            } else if (colaEspera.contains(proceso)) {
+                if (proceso.estado != EstadoProceso.PREPARADO && proceso.tiempoAsignacion == -1) {
+                    proceso.estado = EstadoProceso.PREPARADO;
+                }
+            } else if (proceso.tiempoAsignacion != -1 && proceso.tiempoFinalizacion != -1) {
+                if (proceso.estado != EstadoProceso.FINALIZADO) {
+                    proceso.estado = EstadoProceso.FINALIZADO;
+                }
+            } else if (proceso.tiempoAsignacion == -1 && proceso.estado == EstadoProceso.CREACION && proceso.tiempoFinalizacion == -1) {
+                if (tiempoActual >= proceso.tiempoCreacion && procesoEnEjecucion == null && colaEspera.isEmpty()) {
+                    proceso.estado = EstadoProceso.EJECUCION;
+                    proceso.tiempoAsignacion = tiempoActual;
+                    procesoEnEjecucion = proceso;
+                    tiempoActual += proceso.tiempoEjecucion;
+                } else if (tiempoActual >= proceso.tiempoCreacion && colaEspera.size() < TAMANO_COLA_ESPERA) {
+                    proceso.estado = EstadoProceso.PREPARADO;
+                    if (!colaEspera.contains(proceso)) {
+                        colaEspera.add(proceso);
+                    }
+                }
+            }
+        }
+    }
+    
     public static class ProcesoInfo {
         public String nombre;
         public String clienteId;
@@ -160,14 +216,14 @@ public class ProcesosImpl {
             tiempoActual = tiempoCreacion;
         }
         
-        if (procesoEnEjecucion == null && colaEspera.isEmpty()) {
+        if (procesoEnEjecucion == null && colaEspera.isEmpty() && nuevoProceso.tiempoFinalizacion == -1) {
             nuevoProceso.estado = EstadoProceso.EJECUCION;
             nuevoProceso.tiempoAsignacion = tiempoActual;
             procesoEnEjecucion = nuevoProceso;
             tiempoActual += nuevoProceso.tiempoEjecucion;
             tablaProcesos.put(claveProceso, nuevoProceso);
             return "Proceso " + nombre + " aceptado y en ejecucion (Intento 1 exitoso)";
-        } else if (colaEspera.size() < TAMANO_COLA_ESPERA) {
+        } else if (colaEspera.size() < TAMANO_COLA_ESPERA && nuevoProceso.tiempoFinalizacion == -1) {
             nuevoProceso.estado = EstadoProceso.PREPARADO;
             colaEspera.add(nuevoProceso);
             tablaProcesos.put(claveProceso, nuevoProceso);
@@ -203,9 +259,11 @@ public class ProcesosImpl {
     private synchronized void procesarSiguienteProceso() {
         limpiarColaEspera();
         
-        if (!colaEspera.isEmpty()) {
+        if (!colaEspera.isEmpty() && procesoEnEjecucion == null) {
             Proceso siguiente = colaEspera.poll();
-            if (siguiente.estado != EstadoProceso.ELIMINADO) {
+            if (siguiente.estado != EstadoProceso.ELIMINADO && 
+                siguiente.estado != EstadoProceso.FINALIZADO &&
+                siguiente.tiempoFinalizacion == -1) {
                 siguiente.estado = EstadoProceso.EJECUCION;
                 siguiente.tiempoAsignacion = tiempoActual;
                 procesoEnEjecucion = siguiente;
@@ -260,12 +318,12 @@ public class ProcesosImpl {
             proceso.intentosRechazo++;
             proceso.tiempoUltimoIntento = tiempoActual;
             
-            if (procesoEnEjecucion == null && colaEspera.isEmpty()) {
+            if (procesoEnEjecucion == null && colaEspera.isEmpty() && proceso.tiempoFinalizacion == -1) {
                 proceso.estado = EstadoProceso.EJECUCION;
                 proceso.tiempoAsignacion = tiempoActual;
                 procesoEnEjecucion = proceso;
                 tiempoActual += proceso.tiempoEjecucion;
-            } else if (colaEspera.size() < TAMANO_COLA_ESPERA) {
+            } else if (colaEspera.size() < TAMANO_COLA_ESPERA && proceso.tiempoFinalizacion == -1) {
                 proceso.estado = EstadoProceso.PREPARADO;
                 colaEspera.add(proceso);
             } else {
@@ -335,9 +393,146 @@ public class ProcesosImpl {
         }
     }
     
+    private static class TiempoEjecucion {
+        String nombreProceso;
+        int tiempoInicioReal;
+        int tiempoFinReal;
+        
+        TiempoEjecucion(String nombre, int inicio, int fin) {
+            this.nombreProceso = nombre;
+            this.tiempoInicioReal = inicio;
+            this.tiempoFinReal = fin;
+        }
+    }
+    
+    private synchronized Map<String, TiempoEjecucion> calcularTiemposEjecucionSecuencial() {
+        Map<String, TiempoEjecucion> tiemposEjecucion = new HashMap<>();
+        
+        List<Proceso> procesosConAsignacion = new ArrayList<>();
+        for (Proceso proceso : tablaProcesos.values()) {
+            if (proceso.estado != EstadoProceso.ELIMINADO && proceso.tiempoAsignacion != -1) {
+                procesosConAsignacion.add(proceso);
+            }
+        }
+        
+        if (procesoEnEjecucion != null && 
+            procesoEnEjecucion.tiempoAsignacion != -1 &&
+            !procesosConAsignacion.contains(procesoEnEjecucion)) {
+            procesosConAsignacion.add(procesoEnEjecucion);
+        }
+        
+        procesosConAsignacion.sort((a, b) -> {
+            int cmp = Integer.compare(a.tiempoAsignacion, b.tiempoAsignacion);
+            if (cmp != 0) return cmp;
+            return a.nombre.compareTo(b.nombre);
+        });
+        
+        int tiempoActualEjecucion = 0;
+        for (Proceso proceso : procesosConAsignacion) {
+            int tiempoInicioReal = Math.max(proceso.tiempoAsignacion, tiempoActualEjecucion);
+            
+            int tiempoFinReal;
+            if (proceso == procesoEnEjecucion && proceso.estado == EstadoProceso.EJECUCION) {
+                tiempoFinReal = Math.max(tiempoActual, tiempoInicioReal + proceso.tiempoEjecucion);
+            } else {
+                tiempoFinReal = tiempoInicioReal + proceso.tiempoEjecucion;
+            }
+            
+            String claveProceso = proceso.clienteId + "_" + proceso.nombre;
+            tiemposEjecucion.put(claveProceso, new TiempoEjecucion(proceso.nombre, tiempoInicioReal, tiempoFinReal));
+            
+            tiempoActualEjecucion = tiempoFinReal;
+        }
+        
+        return tiemposEjecucion;
+    }
+    
+    public static class TiempoEjecucionInfo {
+        public String nombreProceso;
+        public int tiempoInicioReal;
+        public int tiempoFinReal;
+        
+        public TiempoEjecucionInfo(String nombre, int inicio, int fin) {
+            this.nombreProceso = nombre;
+            this.tiempoInicioReal = inicio;
+            this.tiempoFinReal = fin;
+        }
+    }
+    
+    public synchronized Map<String, TiempoEjecucionInfo> obtenerTiemposEjecucionSecuenciales() {
+        Map<String, TiempoEjecucion> tiempos = calcularTiemposEjecucionSecuencial();
+        Map<String, TiempoEjecucionInfo> resultado = new HashMap<>();
+        for (Map.Entry<String, TiempoEjecucion> entry : tiempos.entrySet()) {
+            TiempoEjecucion te = entry.getValue();
+            resultado.put(entry.getKey(), new TiempoEjecucionInfo(te.nombreProceso, te.tiempoInicioReal, te.tiempoFinReal));
+        }
+        return resultado;
+    }
+    
+    public synchronized String obtenerProcesoEnTiempo(int tiempo) {
+        Map<String, TiempoEjecucion> tiempos = calcularTiemposEjecucionSecuencial();
+        for (TiempoEjecucion te : tiempos.values()) {
+            if (tiempo >= te.tiempoInicioReal && tiempo < te.tiempoFinReal) {
+                return te.nombreProceso;
+            }
+        }
+        return null;
+    }
+    
+    public synchronized List<ProcesoInfo> obtenerProcesosOrdenadosPorEntrada() {
+        List<Proceso> procesos = new ArrayList<>();
+        for (Proceso proceso : tablaProcesos.values()) {
+            if (proceso.estado != EstadoProceso.ELIMINADO) {
+                procesos.add(proceso);
+            }
+        }
+        procesos.sort((a, b) -> {
+            int cmp = Integer.compare(a.tiempoCreacion, b.tiempoCreacion);
+            if (cmp != 0) return cmp;
+            int cmpAsig = Integer.compare(
+                a.tiempoAsignacion == -1 ? Integer.MAX_VALUE : a.tiempoAsignacion,
+                b.tiempoAsignacion == -1 ? Integer.MAX_VALUE : b.tiempoAsignacion
+            );
+            if (cmpAsig != 0) return cmpAsig;
+            return a.nombre.compareTo(b.nombre);
+        });
+        
+        List<ProcesoInfo> resultado = new ArrayList<>();
+        for (Proceso proceso : procesos) {
+            resultado.add(new ProcesoInfo(
+                proceso.nombre,
+                proceso.clienteId,
+                proceso.tiempoCreacion,
+                proceso.tiempoEjecucion,
+                proceso.estado,
+                proceso.tiempoAsignacion,
+                proceso.tiempoFinalizacion
+            ));
+        }
+        return resultado;
+    }
+    
+    public synchronized boolean hayProcesos() {
+        for (Proceso proceso : tablaProcesos.values()) {
+            if (proceso.estado != EstadoProceso.ELIMINADO) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
     public synchronized List<String> obtenerTablaGantt() {
         List<String> tabla = new ArrayList<>();
         tabla.add("+========== TABLA GANTT - PLANIFICADOR FIFO ==========+");
+        
+        Map<String, TiempoEjecucion> tiemposEjecucion = calcularTiemposEjecucionSecuencial();
+        
+        Map<Integer, String> procesoPorTiempo = new HashMap<>();
+        for (TiempoEjecucion te : tiemposEjecucion.values()) {
+            for (int t = te.tiempoInicioReal; t < te.tiempoFinReal && t <= TIEMPO_TOTAL; t++) {
+                procesoPorTiempo.put(t, te.nombreProceso);
+            }
+        }
         
         List<Proceso> procesosOrdenados = new ArrayList<>(tablaProcesos.values());
         procesosOrdenados.sort((a, b) -> a.nombre.compareTo(b.nombre));
@@ -353,16 +548,24 @@ public class ProcesosImpl {
         for (Proceso proceso : procesosOrdenados) {
             if (proceso.estado == EstadoProceso.ELIMINADO) continue;
             
+            String claveProceso = proceso.clienteId + "_" + proceso.nombre;
+            TiempoEjecucion tiempoEjec = tiemposEjecucion.get(claveProceso);
+            
             StringBuilder fila = new StringBuilder("|    ");
             fila.append(String.format("%-4s", proceso.nombre)).append(" |");
             
             for (int t = 0; t <= TIEMPO_TOTAL; t++) {
                 if (t == proceso.tiempoCreacion) {
                     fila.append(" X ");
-                } else if (proceso.tiempoAsignacion != -1 && 
-                          t >= proceso.tiempoAsignacion && 
-                          t < proceso.tiempoAsignacion + proceso.tiempoEjecucion) {
-                    fila.append("███");
+                } else if (tiempoEjec != null && 
+                          t >= tiempoEjec.tiempoInicioReal && 
+                          t < tiempoEjec.tiempoFinReal) {
+                    String procesoEnTiempoT = procesoPorTiempo.get(t);
+                    if (proceso.nombre.equals(procesoEnTiempoT)) {
+                        fila.append("███");
+                    } else {
+                        fila.append("   ");
+                    }
                 } else {
                     fila.append("   ");
                 }
@@ -440,16 +643,41 @@ public class ProcesosImpl {
         List<Proceso> procesosOrdenados = new ArrayList<>(tablaProcesos.values());
         procesosOrdenados.sort((a, b) -> a.nombre.compareTo(b.nombre));
         
+        boolean hayProcesos = false;
         for (Proceso proceso : procesosOrdenados) {
             if (proceso.estado == EstadoProceso.ELIMINADO) continue;
             
+            if (proceso.estado == EstadoProceso.FINALIZADO) continue;
+            
+            if (proceso.estado == EstadoProceso.CREACION && proceso.tiempoAsignacion == -1) continue;
+            
+            boolean esProcesoActivo = (proceso.estado == EstadoProceso.EJECUCION || 
+                                       proceso.estado == EstadoProceso.PREPARADO ||
+                                       proceso == procesoEnEjecucion ||
+                                       colaEspera.contains(proceso));
+            
+            if (!esProcesoActivo) continue;
+            
+            hayProcesos = true;
             String tiempoAsignadoStr = proceso.tiempoAsignacion == -1 ? "   No    " : 
                                       String.format("   %-3d   ", proceso.tiempoAsignacion);
-            String estadoStr = proceso.estado.toString();
+            
+            String estadoStr;
+            if (proceso == procesoEnEjecucion) {
+                estadoStr = "EJECUCION";
+            } else if (colaEspera.contains(proceso)) {
+                estadoStr = "PREPARADO";
+            } else {
+                estadoStr = proceso.estado.toString();
+            }
             
             tabla.add(String.format("|    %-4s |   %-5s |  %-3d  |  %-3d  | %-9s | %s |", 
                 proceso.nombre, proceso.clienteId, proceso.tiempoCreacion, 
                 proceso.tiempoEjecucion, estadoStr, tiempoAsignadoStr));
+        }
+        
+        if (!hayProcesos) {
+            tabla.add("|          No hay procesos activos en este momento        |");
         }
         
         tabla.add("+---------+---------+-------+-------+-----------+------------+");

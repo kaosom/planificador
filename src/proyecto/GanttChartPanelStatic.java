@@ -66,9 +66,9 @@ public class GanttChartPanelStatic extends JPanel {
                 g2d.fillRect(x + 1, y + 1, CELL_WIDTH - 2, ROW_HEIGHT - 2);
                 g2d.setColor(Color.BLACK);
                 g2d.drawString("X", x + CELL_WIDTH / 2 - 3, y + ROW_HEIGHT / 2 + 4);
-            } else if (proceso.tiempoAsignacion != -1 && 
-                      t >= proceso.tiempoAsignacion && 
-                      t < proceso.tiempoAsignacion + proceso.tiempoEjecucion) {
+            } else if (proceso.tiempoInicioReal != -1 && 
+                      t >= proceso.tiempoInicioReal && 
+                      t < proceso.tiempoFinReal) {
                 if (proceso.estado == ProcesosImpl.EstadoProceso.FINALIZADO) {
                     g2d.setColor(Color.GREEN);
                 } else if (proceso.estado == ProcesosImpl.EstadoProceso.EJECUCION) {
@@ -96,13 +96,23 @@ public class GanttChartPanelStatic extends JPanel {
         
         if (planificador == null) return procesos;
         
-        java.util.Map<String, ProcesosImpl.ProcesoInfo> mapaProcesos = planificador.obtenerProcesosParaGUI();
-        for (ProcesosImpl.ProcesoInfo p : mapaProcesos.values()) {
-            procesos.add(new ProcesoInfo(p.nombre, p.clienteId, p.tiempoCreacion, 
-                                        p.tiempoEjecucion, p.estado, p.tiempoAsignacion));
+        java.util.List<ProcesosImpl.ProcesoInfo> procesosOrdenados = planificador.obtenerProcesosOrdenadosPorEntrada();
+        
+        java.util.Map<String, ProcesosImpl.TiempoEjecucionInfo> tiemposEjecucion = planificador.obtenerTiemposEjecucionSecuenciales();
+        
+        for (ProcesosImpl.ProcesoInfo p : procesosOrdenados) {
+            String clave = p.clienteId + "_" + p.nombre;
+            ProcesosImpl.TiempoEjecucionInfo tiempoEjec = tiemposEjecucion.get(clave);
+            
+            ProcesoInfo info = new ProcesoInfo(p.nombre, p.clienteId, p.tiempoCreacion, 
+                                              p.tiempoEjecucion, p.estado, p.tiempoAsignacion);
+            if (tiempoEjec != null) {
+                info.tiempoInicioReal = tiempoEjec.tiempoInicioReal;
+                info.tiempoFinReal = tiempoEjec.tiempoFinReal;
+            }
+            procesos.add(info);
         }
         
-        procesos.sort((a, b) -> a.nombre.compareTo(b.nombre));
         return procesos;
     }
     
@@ -113,6 +123,8 @@ public class GanttChartPanelStatic extends JPanel {
         int tiempoEjecucion;
         ProcesosImpl.EstadoProceso estado;
         int tiempoAsignacion;
+        int tiempoInicioReal = -1;
+        int tiempoFinReal = -1;
         
         ProcesoInfo(String nombre, String clienteId, int tiempoCreacion, int tiempoEjecucion,
                    ProcesosImpl.EstadoProceso estado, int tiempoAsignacion) {

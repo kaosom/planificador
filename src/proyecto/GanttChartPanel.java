@@ -107,9 +107,10 @@ public class GanttChartPanel extends JPanel {
                 g2d.fillRect(x + 2, y + 2, CELL_WIDTH - 4, ROW_HEIGHT - 4);
                 g2d.setColor(Color.BLACK);
                 g2d.drawString("X", x + CELL_WIDTH / 2 - 3, y + ROW_HEIGHT / 2 + 5);
-            } else if (proceso.tiempoAsignacion != -1 && 
-                      t >= proceso.tiempoAsignacion && 
-                      t < proceso.tiempoAsignacion + proceso.tiempoEjecucion) {
+            } else if (proceso.tiempoInicioReal != -1 && 
+                      t >= proceso.tiempoInicioReal && 
+                      t < proceso.tiempoFinReal && 
+                      t <= tiempoActual) {
                 if (proceso.estado == ProcesosImpl.EstadoProceso.EJECUCION) {
                     g2d.setColor(Color.GREEN);
                 } else {
@@ -118,6 +119,7 @@ public class GanttChartPanel extends JPanel {
                 g2d.fillRect(x + 2, y + 2, CELL_WIDTH - 4, ROW_HEIGHT - 4);
             } else if (proceso.estado == ProcesosImpl.EstadoProceso.PREPARADO && 
                       t > proceso.tiempoCreacion && 
+                      t <= tiempoActual &&
                       (proceso.tiempoAsignacion == -1 || t < proceso.tiempoAsignacion)) {
                 g2d.setColor(Color.ORANGE);
                 g2d.fillRect(x + 2, y + 2, CELL_WIDTH - 4, ROW_HEIGHT - 4);
@@ -133,6 +135,8 @@ public class GanttChartPanel extends JPanel {
     private void dibujarLineaTiempoActual(Graphics2D g2d, int tiempoActual) {
         if (tiempoActual < 0 || tiempoActual > TIEMPO_TOTAL) return;
         
+        if (planificador == null || !planificador.hayProcesos()) return;
+        
         int x = PROCESS_NAME_WIDTH + tiempoActual * CELL_WIDTH;
         g2d.setColor(Color.RED);
         g2d.setStroke(new BasicStroke(3));
@@ -147,13 +151,28 @@ public class GanttChartPanel extends JPanel {
         
         if (planificador == null) return procesos;
         
-        java.util.Map<String, ProcesosImpl.ProcesoInfo> mapaProcesos = planificador.obtenerProcesosParaGUI();
-        for (ProcesosImpl.ProcesoInfo p : mapaProcesos.values()) {
-            procesos.add(new ProcesoInfo(p.nombre, p.clienteId, p.tiempoCreacion, 
-                                        p.tiempoEjecucion, p.estado, p.tiempoAsignacion));
+        String nombreProcesoActivo = planificador.obtenerProcesoEnTiempo(tiempoActualVisual);
+        
+        if (nombreProcesoActivo != null) {
+            java.util.Map<String, ProcesosImpl.TiempoEjecucionInfo> tiemposEjecucion = planificador.obtenerTiemposEjecucionSecuenciales();
+            
+            java.util.Map<String, ProcesosImpl.ProcesoInfo> mapaProcesos = planificador.obtenerProcesosParaGUI();
+            for (ProcesosImpl.ProcesoInfo p : mapaProcesos.values()) {
+                if (p.nombre.equals(nombreProcesoActivo)) {
+                    String clave = p.clienteId + "_" + p.nombre;
+                    ProcesoInfo info = new ProcesoInfo(p.nombre, p.clienteId, p.tiempoCreacion, 
+                                                      p.tiempoEjecucion, p.estado, p.tiempoAsignacion);
+                    ProcesosImpl.TiempoEjecucionInfo tiempoEjec = tiemposEjecucion.get(clave);
+                    if (tiempoEjec != null) {
+                        info.tiempoInicioReal = tiempoEjec.tiempoInicioReal;
+                        info.tiempoFinReal = tiempoEjec.tiempoFinReal;
+                    }
+                    procesos.add(info);
+                    break;
+                }
+            }
         }
         
-        procesos.sort((a, b) -> a.nombre.compareTo(b.nombre));
         return procesos;
     }
     
@@ -164,6 +183,8 @@ public class GanttChartPanel extends JPanel {
         int tiempoEjecucion;
         ProcesosImpl.EstadoProceso estado;
         int tiempoAsignacion;
+        int tiempoInicioReal = -1;
+        int tiempoFinReal = -1;
         
         ProcesoInfo(String nombre, String clienteId, int tiempoCreacion, int tiempoEjecucion,
                    ProcesosImpl.EstadoProceso estado, int tiempoAsignacion) {

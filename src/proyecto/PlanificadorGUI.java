@@ -8,8 +8,11 @@ public class PlanificadorGUI extends JFrame {
     
     private JButton btnIniciarServidor;
     private JButton btnDetenerServidor;
+    private JButton btnPausarSimulacion;
+    private JButton btnContinuarSimulacion;
     private JLabel lblEstadoServidor;
     private JTextArea logArea;
+    private boolean simulacionPausada = true;
     
     private JTextField txtClienteId;
     private JButton btnConectarCliente;
@@ -53,6 +56,10 @@ public class PlanificadorGUI extends JFrame {
         btnIniciarServidor = new JButton("Arrancar Servidor");
         btnDetenerServidor = new JButton("Parar Servidor");
         btnDetenerServidor.setEnabled(false);
+        btnPausarSimulacion = new JButton("Pausar Simulacion");
+        btnPausarSimulacion.setEnabled(false);
+        btnContinuarSimulacion = new JButton("Continuar Simulacion");
+        btnContinuarSimulacion.setEnabled(false);
         lblEstadoServidor = new JLabel("Servidor parado");
         lblEstadoServidor.setForeground(Color.RED);
         logArea = new JTextArea(5, 30);
@@ -95,6 +102,8 @@ public class PlanificadorGUI extends JFrame {
         panelControlServidor.add(btnIniciarServidor);
         panelControlServidor.add(btnDetenerServidor);
         panelControlServidor.add(lblEstadoServidor);
+        panelControlServidor.add(btnPausarSimulacion);
+        panelControlServidor.add(btnContinuarSimulacion);
         panelSuperior.add(panelControlServidor, BorderLayout.WEST);
         
         JScrollPane scrollLog = new JScrollPane(logArea);
@@ -171,6 +180,8 @@ public class PlanificadorGUI extends JFrame {
                 servidorManager.iniciarServidor();
                 btnIniciarServidor.setEnabled(false);
                 btnDetenerServidor.setEnabled(true);
+                btnContinuarSimulacion.setEnabled(true);
+                simulacionPausada = true;
                 lblEstadoServidor.setText("Servidor activo");
                 lblEstadoServidor.setForeground(Color.GREEN);
                 tiempoVisualActual = 0;
@@ -187,6 +198,9 @@ public class PlanificadorGUI extends JFrame {
                 servidorManager.detenerServidor();
                 btnIniciarServidor.setEnabled(true);
                 btnDetenerServidor.setEnabled(false);
+                btnPausarSimulacion.setEnabled(false);
+                btnContinuarSimulacion.setEnabled(false);
+                simulacionPausada = true;
                 lblEstadoServidor.setText("Servidor parado");
                 lblEstadoServidor.setForeground(Color.RED);
                 tiempoVisualActual = 0;
@@ -195,6 +209,20 @@ public class PlanificadorGUI extends JFrame {
                 JOptionPane.showMessageDialog(this, "No se pudo parar el servidor: " + ex.getMessage(), 
                                              "Error", JOptionPane.ERROR_MESSAGE);
             }
+        });
+        
+        btnPausarSimulacion.addActionListener(e -> {
+            simulacionPausada = true;
+            btnPausarSimulacion.setEnabled(false);
+            btnContinuarSimulacion.setEnabled(true);
+            agregarLog("Simulacion pausada");
+        });
+        
+        btnContinuarSimulacion.addActionListener(e -> {
+            simulacionPausada = false;
+            btnPausarSimulacion.setEnabled(true);
+            btnContinuarSimulacion.setEnabled(false);
+            agregarLog("Simulacion continuada");
         });
         
         btnConectarCliente.addActionListener(e -> {
@@ -245,9 +273,10 @@ public class PlanificadorGUI extends JFrame {
     
     private void iniciarActualizacionAutomatica() {
         timerActualizacion = new javax.swing.Timer(1000, e -> {
-            if (servidorManager.isServidorActivo()) {
+            if (servidorManager.isServidorActivo() && !simulacionPausada) {
                 tiempoVisualActual++;
                 if (tiempoVisualActual > 30) tiempoVisualActual = 0;
+                planificador.avanzarSimulacion(tiempoVisualActual);
             }
             actualizarVista();
         });
